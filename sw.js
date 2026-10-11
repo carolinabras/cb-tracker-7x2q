@@ -1,5 +1,5 @@
 ﻿// Network-first: when online you always get the latest version; offline it falls back to the cache.
-const CACHE = 'habits-v5';
+const CACHE = 'habits-v6';
 const ASSETS = [
   './',
   'index.html',

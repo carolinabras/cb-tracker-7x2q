@@ -55,6 +55,10 @@ const EMOJIS = ['💧', '📚', '🚶', '🏃', '🧘', '💪', '🚴', '🏊',
   '✍️', '📝', '🧠', '💻', '🎸', '🎨', '📵', '🧹',
   '💊', '🦷', '🧴', '🙏', '💰', '🌱', '🐶', '❤️'];
 
+// "Add to Google Calendar" choices for to-dos.
+const DURATIONS = [[15, '15 min'], [30, '30 min'], [60, '1 hour'], [90, '1½ hours'], [120, '2 hours'], [180, '3 hours']];
+const CAL_REPEATS = { none: "Doesn't repeat", DAILY: 'Every day', WEEKLY: 'Every week', MONTHLY: 'Every month' };
+
 // ---------- Storage ----------
 // Shape: { habits: [{ id, name, createdAt, emoji?, color? }],
 //          log: { 'YYYY-MM-DD': { [habitId]: 'done' | 'missed' } },
@@ -110,7 +114,12 @@ function normalize(data) {
   const rawTodos = Array.isArray(data.todos) ? data.todos : Array.isArray(data.reminders) ? data.reminders : [];
   const todos = rawTodos
     .filter((t) => t && typeof t.id === 'string' && typeof t.text === 'string')
-    .map((t) => ({ id: t.id, text: t.text.slice(0, 200), done: !!t.done, doneAt: typeof t.doneAt === 'string' ? t.doneAt : null }));
+    .map((t) => {
+      const out = { id: t.id, text: t.text.slice(0, 200), done: !!t.done, doneAt: typeof t.doneAt === 'string' ? t.doneAt : null };
+      const cal = validCal(t.cal);
+      if (cal) out.cal = cal;
+      return out;
+    });
 
   const now = new Date().toISOString();
   const notes = (Array.isArray(data.notes) ? data.notes : [])
@@ -205,6 +214,7 @@ let currentTab = 'today';
 let editingHabitId = null; // habit whose icon/color editor is open in the Style tab
 let editingCustomKey = null; // custom theme color whose swatches are open in the Style tab
 let editingTodoId = null; // to-do whose text is being edited
+let calTodoId = null; // to-do whose "add to Google Calendar" panel is open
 let openNoteId = null; // note open in the editor (null = notes list)
 let noteQuery = '';
 let noteSaveTimer = null;
@@ -369,6 +379,7 @@ const ICONS = {
   down: '<svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
   edit: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>',
+  calendar: '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4M12 13v4M10 15h4"/></svg>',
 };
 
 // A habit's icon: uploaded picture first, then emoji, otherwise nothing.
@@ -817,14 +828,114 @@ function todoItem(t) {
   } else {
     body = el('button', { class: 'todo-text', text: t.text, onclick: () => { editingTodoId = t.id; renderTodos(); } });
   }
+  const calOpen = calTodoId === t.id && !editing;
 
   return el('li', { class: `card todo${t.done ? ' done' : ''}` },
     el('button', {
       class: `check-circle${t.done ? ' on' : ''}`, 'aria-label': `${t.done ? 'Mark not done' : 'Mark done'}: ${t.text}`,
       'aria-pressed': String(t.done), onclick: () => toggleTodo(t),
     }, t.done ? '✓' : ''),
-    body,
-    editing ? null : el('button', { class: 'icon danger', 'aria-label': `Delete: ${t.text}`, html: ICONS.trash, onclick: () => deleteTodo(t) }));
+    el('div', { class: 'todo-main' },
+      body,
+      t.cal && !editing ? el('div', { class: 'todo-meta', text: `📅 ${calLabel(t.cal)}` }) : null),
+    editing ? null : el('button', {
+      class: `icon${calOpen ? ' active' : ''}`, 'aria-label': `Add to Google Calendar: ${t.text}`, 'aria-expanded': String(calOpen),
+      html: ICONS.calendar, onclick: () => { calTodoId = calOpen ? null : t.id; renderTodos(); },
+    }),
+    editing ? null : el('button', { class: 'icon danger', 'aria-label': `Delete: ${t.text}`, html: ICONS.trash, onclick: () => deleteTodo(t) }),
+    calOpen ? calendarPanel(t) : null);
+}
+
+// ---------- Google Calendar ----------
+// Google Calendar's "new event" link opens with the event filled in; you just tap Save.
+// Nothing is sent anywhere until you do, and no Google sign-in is needed inside this app.
+function validCal(c) {
+  if (!c || typeof c !== 'object' || !/^\d{4}-\d{2}-\d{2}$/.test(c.date)) return null;
+  return {
+    date: c.date,
+    time: /^\d{2}:\d{2}$/.test(c.time) ? c.time : null,
+    dur: DURATIONS.some(([m]) => m === c.dur) ? c.dur : 60,
+    repeat: CAL_REPEATS[c.repeat] ? c.repeat : 'none',
+  };
+}
+
+function calLabel(c) {
+  const d = parseKey(c.date);
+  const diff = daysBetween(today(), d);
+  let text = diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow'
+    : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  if (c.time) {
+    const [h, m] = c.time.split(':').map(Number);
+    text += ` · ${new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+  }
+  if (c.repeat !== 'none') text += ` · ${CAL_REPEATS[c.repeat].toLowerCase()}`;
+  return text;
+}
+
+function googleCalendarUrl(text, c) {
+  const ymd = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+  const day = parseKey(c.date);
+  let dates;
+  if (c.time) {
+    const [h, m] = c.time.split(':').map(Number);
+    const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m);
+    const end = new Date(start.getTime() + c.dur * 60000);
+    const stamp = (d) => `${ymd(d)}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+    dates = `${stamp(start)}/${stamp(end)}`;
+  } else {
+    dates = `${ymd(day)}/${ymd(addDays(day, 1))}`; // all-day event
+  }
+  const params = new URLSearchParams({ action: 'TEMPLATE', text, dates });
+  try {
+    params.set('ctz', Intl.DateTimeFormat().resolvedOptions().timeZone);
+  } catch (e) { /* Google uses your calendar's time zone instead */ }
+  if (c.repeat !== 'none') params.set('recur', `RRULE:FREQ=${c.repeat}`);
+  return `https://calendar.google.com/calendar/render?${params}`;
+}
+
+function calendarPanel(t) {
+  const c = t.cal || { date: dayKey(today()), time: null, dur: 60, repeat: 'none' };
+  const date = el('input', { class: 'field', type: 'date', value: c.date, 'aria-label': 'Date' });
+  const time = el('input', { class: 'field', type: 'time', value: c.time || '', 'aria-label': 'Time' });
+  const dur = el('select', { class: 'field', 'aria-label': 'Duration' },
+    ...DURATIONS.map(([m, label]) => el('option', { value: String(m), selected: m === c.dur }, label)));
+  const repeat = el('select', { class: 'field', 'aria-label': 'Repeat' },
+    ...Object.entries(CAL_REPEATS).map(([v, label]) => el('option', { value: v, selected: v === c.repeat }, label)));
+  const hint = el('p', { class: 'hint' });
+
+  const read = () => validCal({ date: date.value || dayKey(today()), time: time.value || null, dur: Number(dur.value), repeat: repeat.value });
+  const link = el('a', { class: 'primary btn cal-go', target: '_blank', rel: 'noopener' }, 'Open in Google Calendar');
+  const update = () => {
+    const cal = read();
+    link.href = googleCalendarUrl(t.text, cal);
+    dur.disabled = !cal.time;
+    hint.textContent = cal.time
+      ? 'Google Calendar opens with this event filled in. Check it and tap Save.'
+      : 'No time set, so this will be an all-day event. Google Calendar opens with it filled in. Tap Save.';
+  };
+  for (const input of [date, time, dur, repeat]) {
+    input.addEventListener('input', update);
+    input.addEventListener('change', update);
+  }
+  // Remember what was sent so the to-do shows its date. Re-render after the link has opened.
+  link.addEventListener('click', () => {
+    t.cal = read();
+    calTodoId = null;
+    save();
+    setTimeout(renderTodos, 0);
+  });
+  update();
+
+  return el('div', { class: 'cal-panel' },
+    el('div', { class: 'cal-fields' },
+      el('label', {}, 'Date', date),
+      el('label', {}, 'Time (optional)', time),
+      el('label', {}, 'Duration', dur),
+      el('label', {}, 'Repeat', repeat)),
+    hint,
+    el('div', { class: 'button-row' },
+      link,
+      el('button', { class: 'secondary', text: 'Cancel', onclick: () => { calTodoId = null; renderTodos(); } })));
 }
 
 function renderTodos() {
