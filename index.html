@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Habits">
+  <meta name="theme-color" content="#f2f2f7" data-default="#f2f2f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" data-default="#000000" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>Habits</title>
+</head>
+<body>
+  <div id="backdrop" aria-hidden="true"></div>
+  <header class="top">
+    <h1 id="title">Check-in</h1>
+  </header>
+
+  <main>
+    <section id="view-today" class="view">
+      <div class="datebar">
+        <button id="prev-day" class="nav" aria-label="Previous day">‹</button>
+        <button id="date-label" class="date-label" aria-label="Go to today"></button>
+        <button id="next-day" class="nav" aria-label="Next day">›</button>
+      </div>
+      <div id="progress" class="progress">
+        <div class="bar"><span id="progress-fill"></span></div>
+        <div id="progress-text" class="ptext"></div>
+      </div>
+      <ul id="today-list" class="list"></ul>
+      <p id="today-empty" class="empty" hidden>No habits yet. Add your first one in the <b>Habits</b> tab.</p>
+    </section>
+
+    <section id="view-history" class="view" hidden>
+      <div class="legend">
+        <span><i class="cell done"></i>Done</span>
+        <span><i class="cell missed"></i>Missed</span>
+        <span><i class="cell"></i>Not marked</span>
+      </div>
+      <div id="history"></div>
+    </section>
+
+    <section id="view-todos" class="view" hidden>
+      <form id="todo-form" class="add-form">
+        <input id="todo-input" placeholder="Add a to-do…" maxlength="200" autocomplete="off" enterkeyhint="done" aria-label="New to-do">
+        <button type="submit" class="primary">Add</button>
+      </form>
+      <div id="todos"></div>
+    </section>
+
+    <section id="view-notes" class="view" hidden>
+      <div id="notes"></div>
+    </section>
+
+    <section id="view-habits" class="view" hidden>
+      <form id="add-form" class="add-form">
+        <input id="add-input" placeholder="New habit, e.g. Read 10 pages" maxlength="60" autocomplete="off" enterkeyhint="done">
+        <button type="submit" class="primary">Add</button>
+      </form>
+      <ul id="habit-list" class="list"></ul>
+      <p id="habits-empty" class="empty" hidden>Add the habits you want to track every day.</p>
+
+      <div class="card backup">
+        <h2>Backup</h2>
+        <p>Your data is stored only on this phone. Export a backup every so often (save it to Files or iCloud Drive).</p>
+        <div class="backup-actions">
+          <button id="export-btn" class="secondary">Export backup</button>
+          <label class="secondary btn">Import backup<input type="file" id="import-input" accept="application/json,.json" hidden></label>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-style" class="view" hidden>
+      <div id="style"></div>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <button data-tab="today" class="active">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/></svg>
+      <span>Today</span>
+    </button>
+    <button data-tab="history">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+      <span>History</span>
+    </button>
+    <button data-tab="todos">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3.5"/><path d="M8 12.3l2.6 2.6L16 9.5"/></svg>
+      <span>To-do</span>
+    </button>
+    <button data-tab="notes">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 3.5h8l4 4v13h-12a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z"/><path d="M14.5 3.5v4h4M9 12h6M9 16h6"/></svg>
+      <span>Notes</span>
+    </button>
+    <button data-tab="habits">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>
+      <span>Habits</span>
+    </button>
+    <button data-tab="style">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1 0 1.6-.7 1.6-1.5 0-.4-.2-.8-.4-1.1-.3-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.4-4-7.9-9-7.9z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="15.5" cy="8" r="1"/></svg>
+      <span>Style</span>
+    </button>
+  </nav>
+
+  <script src="app.js"></script>
+</body>
+</html>
