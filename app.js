@@ -215,6 +215,9 @@ let editingHabitId = null; // habit whose icon/color editor is open in the Style
 let editingCustomKey = null; // custom theme color whose swatches are open in the Style tab
 let editingTodoId = null; // to-do whose text is being edited
 let calTodoId = null; // to-do whose "add to Google Calendar" panel is open
+let todoView = 'list'; // 'list' or 'calendar' in the To-do tab
+let calMonth = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1); // month shown in the calendar
+let calDay = viewDate; // day selected in the calendar
 let openNoteId = null; // note open in the editor (null = notes list)
 let noteQuery = '';
 let noteSaveTimer = null;
@@ -938,7 +941,142 @@ function calendarPanel(t) {
       el('button', { class: 'secondary', text: 'Cancel', onclick: () => { calTodoId = null; renderTodos(); } })));
 }
 
+// ---------- Calendar view of dated to-dos ----------
+// Same rules as Google Calendar: a monthly repeat on the 31st skips shorter months.
+function occursOn(cal, day) {
+  const start = parseKey(cal.date);
+  if (day < start) return false;
+  if (sameDay(day, start)) return true;
+  if (cal.repeat === 'DAILY') return true;
+  if (cal.repeat === 'WEEKLY') return daysBetween(start, day) % 7 === 0;
+  if (cal.repeat === 'MONTHLY') return day.getDate() === start.getDate();
+  return false;
+}
+
+// All-day items first, then by time.
+const todosOn = (day) => state.todos
+  .filter((t) => t.cal && occursOn(t.cal, day))
+  .sort((a, b) => (a.cal.time || '').localeCompare(b.cal.time || ''));
+
+function calTimeLabel(c) {
+  if (!c.time) return 'All day';
+  const [h, m] = c.time.split(':').map(Number);
+  return new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+function calendarGrid() {
+  const t = today();
+  const first = calMonth;
+  const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  const offset = (first.getDay() + 6) % 7; // Monday first
+  const weeks = Math.ceil((offset + daysInMonth) / 7);
+  const start = addDays(first, -offset);
+  const weekdays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+  const cells = [];
+  for (let i = 0; i < weeks * 7; i++) {
+    const d = addDays(start, i);
+    const items = todosOn(d);
+    const classes = ['cal-day'];
+    if (d.getMonth() !== first.getMonth()) classes.push('other');
+    if (sameDay(d, t)) classes.push('today');
+    if (sameDay(d, calDay)) classes.push('selected');
+    cells.push(el('button', {
+      class: classes.join(' '),
+      'aria-label': `${d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}: ${items.length} item${items.length === 1 ? '' : 's'}`,
+      'aria-pressed': String(sameDay(d, calDay)),
+      onclick: () => {
+        calDay = d;
+        if (d.getMonth() !== calMonth.getMonth()) calMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+        renderTodoCalendar();
+      },
+    },
+      el('span', { class: 'cal-num', text: String(d.getDate()) }),
+      el('span', { class: 'cal-dots' }, ...items.slice(0, 3).map((x) => el('i', { class: x.done ? 'done' : '' })))));
+  }
+
+  const moveMonth = (n) => {
+    calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + n, 1);
+    renderTodoCalendar();
+  };
+  return el('div', { class: 'card cal-month' },
+    el('div', { class: 'cal-head' },
+      el('button', { class: 'nav', 'aria-label': 'Previous month', text: '‹', onclick: () => moveMonth(-1) }),
+      el('button', {
+        class: 'cal-title', 'aria-label': 'Go to today',
+        text: first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
+        onclick: () => { calDay = today(); calMonth = new Date(calDay.getFullYear(), calDay.getMonth(), 1); renderTodoCalendar(); },
+      }),
+      el('button', { class: 'nav', 'aria-label': 'Next month', text: '›', onclick: () => moveMonth(1) })),
+    el('div', { class: 'cal-grid' }, ...weekdays.map((w) => el('div', { class: 'wd', text: w })), ...cells));
+}
+
+function dayItem(t) {
+  const meta = [calTimeLabel(t.cal), t.cal.repeat !== 'none' ? CAL_REPEATS[t.cal.repeat].toLowerCase() : ''].filter(Boolean).join(' · ');
+  return el('li', { class: `card todo${t.done ? ' done' : ''}` },
+    el('button', {
+      class: `check-circle${t.done ? ' on' : ''}`, 'aria-label': `${t.done ? 'Mark not done' : 'Mark done'}: ${t.text}`,
+      'aria-pressed': String(t.done),
+      onclick: () => {
+        t.done = !t.done;
+        t.doneAt = t.done ? new Date().toISOString() : null;
+        save();
+        renderTodoCalendar();
+      },
+    }, t.done ? '✓' : ''),
+    el('div', { class: 'todo-main' },
+      el('span', { class: 'todo-text static', text: t.text }),
+      el('div', { class: 'todo-meta', text: meta })),
+    el('a', {
+      class: 'icon', href: googleCalendarUrl(t.text, t.cal), target: '_blank', rel: 'noopener',
+      'aria-label': `Open in Google Calendar: ${t.text}`, html: ICONS.calendar,
+    }));
+}
+
+function renderTodoCalendar() {
+  const items = todosOn(calDay);
+  const text = el('input', { class: 'field', placeholder: 'Add something on this day…', maxlength: '200', autocomplete: 'off', enterkeyhint: 'done', 'aria-label': 'New item for this day' });
+  const time = el('input', { class: 'field cal-add-time', type: 'time', 'aria-label': 'Time (optional)' });
+  const form = el('form', { class: 'cal-add' }, text, time, el('button', { type: 'submit', class: 'primary', text: 'Add' }));
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const value = text.value.trim();
+    if (!value) return text.focus();
+    state.todos.push({
+      id: newId(), text: value, done: false, doneAt: null,
+      cal: { date: dayKey(calDay), time: time.value || null, dur: 60, repeat: 'none' },
+    });
+    save();
+    renderTodoCalendar();
+  });
+
+  $('#todo-cal').replaceChildren(
+    calendarGrid(),
+    el('div', { class: 'section-label', text: calDay.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }) }),
+    items.length
+      ? el('ul', { class: 'list' }, ...items.map(dayItem))
+      : el('p', { class: 'empty cal-empty', text: 'Nothing on this day.' }),
+    form,
+    el('p', { class: 'hint cal-note', text: 'Shows your to-dos that have a date. Tap the calendar button on an item to add it to Google Calendar.' }));
+}
+
 function renderTodos() {
+  // List / Calendar switch at the top of the To-do tab.
+  $('#todo-switch').replaceChildren(segmented([['list', 'List'], ['calendar', 'Calendar']], todoView, (v) => {
+    todoView = v;
+    calTodoId = null;
+    editingTodoId = null;
+    renderTodos();
+  }));
+  const calendar = todoView === 'calendar';
+  $('#todo-cal').hidden = !calendar;
+  $('#todo-form').hidden = calendar;
+  $('#todos').hidden = calendar;
+  if (calendar) {
+    renderTodoCalendar();
+    return;
+  }
+
   const open = state.todos.filter((t) => !t.done);
   const done = state.todos.filter((t) => t.done).sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
 

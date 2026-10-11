@@ -57,6 +57,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; } /* stays hidden even when a class sets display */
 
 html {
   font-size: calc(17px * var(--scale));
@@ -584,6 +585,56 @@ h2 { font-size: 1.18rem; margin: 0 0 6px; color: var(--heading); }
 .cal-panel .hint { margin: 0; }
 .cal-panel select:disabled { opacity: 0.45; }
 .cal-go { text-decoration: none; text-align: center; }
+
+/* ---------- To-do: List / Calendar ---------- */
+.todo-switch { margin: 4px 0 14px; }
+
+.cal-month { padding: 10px 12px 12px; }
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.cal-head .nav { background: var(--empty); width: 38px; height: 38px; font-size: 1.4rem; }
+.cal-title {
+  border: 0;
+  background: none;
+  font-size: 1.06rem;
+  font-weight: 700;
+  color: var(--heading);
+  padding: 6px 10px;
+}
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.cal-day {
+  aspect-ratio: 1 / 1.05;
+  border: 0;
+  border-radius: calc(10px * var(--round));
+  background: none;
+  color: var(--text);
+  padding: 4px 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.cal-day.other { opacity: 0.35; }
+.cal-num {
+  width: 1.8rem;
+  height: 1.8rem;
+  display: grid;
+  place-items: center;
+  border-radius: calc(0.9rem * var(--round));
+  font-size: 0.88rem;
+}
+.cal-day.today .cal-num { color: var(--tint); font-weight: 700; }
+.cal-day.selected .cal-num { background: var(--tint); color: var(--tint-text); font-weight: 700; }
+.cal-dots { display: flex; gap: 3px; height: 6px; }
+.cal-dots i { width: 6px; height: 6px; border-radius: 3px; background: var(--accent); }
+.cal-dots i.done { background: var(--line); }
+
+.todo-text.static { display: block; padding: 8px 0; }
+a.icon { text-decoration: none; }
+.cal-empty { padding: 14px 16px; }
+.cal-add { display: flex; gap: 8px; margin-top: 12px; }
+.cal-add .field:first-child { flex: 1; }
+.cal-add-time { flex: none; width: 7.5rem; }
+.cal-note { text-align: center; margin-top: 16px; color: var(--on-bg-muted); }
 
 /* ---------- Notes ---------- */
 .notes-top { display: flex; gap: 8px; margin: 4px 0 14px; }
