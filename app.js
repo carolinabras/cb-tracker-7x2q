@@ -59,6 +59,9 @@ const EMOJIS = ['💧', '📚', '🚶', '🏃', '🧘', '💪', '🚴', '🏊',
 const DURATIONS = [[15, '15 min'], [30, '30 min'], [60, '1 hour'], [90, '1½ hours'], [120, '2 hours'], [180, '3 hours']];
 const CAL_REPEATS = { none: "Doesn't repeat", DAILY: 'Every day', WEEKLY: 'Every week', MONTHLY: 'Every month' };
 
+// How often to remind you to back up, in days (0 = never).
+const BACKUP_EVERY = [[0, 'Off'], [3, '3 days'], [7, 'Week'], [14, '2 weeks'], [30, 'Month']];
+
 // ---------- Storage ----------
 // Shape: { habits: [{ id, name, createdAt, emoji?, color? }],
 //          log: { 'YYYY-MM-DD': { [habitId]: 'done' | 'missed' } },
@@ -131,7 +134,14 @@ function normalize(data) {
       createdAt: typeof n.createdAt === 'string' ? n.createdAt : now,
       updatedAt: typeof n.updatedAt === 'string' ? n.updatedAt : now,
     }));
-  return { habits, log: data.log, settings: s, todos, notes };
+  const b = data.backup && typeof data.backup === 'object' ? data.backup : {};
+  const backup = {
+    last: typeof b.last === 'string' ? b.last : null, // when you last saved a backup
+    every: BACKUP_EVERY.some(([d]) => d === b.every) ? b.every : 7,
+    dated: !!b.dated, // false: same file name each time, so Files offers to replace the old one
+    snoozed: /^\d{4}-\d{2}-\d{2}$/.test(b.snoozed) ? b.snoozed : null, // banner hidden until this day
+  };
+  return { habits, log: data.log, settings: s, todos, notes, backup };
 }
 
 const DATA_URL = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
@@ -431,6 +441,7 @@ function renderToday() {
     el('span', { text: viewDate.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) })
   );
   $('#next-day').disabled = diff === 0;
+  renderBackupBanner();
 
   const habits = state.habits;
   $('#today-empty').hidden = habits.length > 0;
@@ -489,6 +500,7 @@ function renderHistory() {
 
 // ---------- Manage habits ----------
 function renderHabits() {
+  renderBackupSettings();
   const habits = state.habits;
   $('#habits-empty').hidden = habits.length > 0;
   $('#habit-list').replaceChildren(...habits.map((h, i) => el('li', { class: 'card row', style: habitVars(h) },
@@ -1243,18 +1255,80 @@ function renderNotes() {
 }
 
 // ---------- Backup ----------
+function backupAge() {
+  const last = state.backup.last;
+  if (!last) return 'Never';
+  const days = daysBetween(startOfDay(new Date(last)), today());
+  return days <= 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days} days ago`;
+}
+
+// Time for a backup? Only nags once there is something worth saving.
+function backupDue() {
+  const b = state.backup;
+  if (!b.every) return false;
+  if (b.snoozed && b.snoozed > dayKey(today())) return false;
+  if (!state.habits.length && !state.todos.length && !state.notes.length) return false;
+  if (!b.last) return true;
+  return daysBetween(startOfDay(new Date(b.last)), today()) >= b.every;
+}
+
+// The "time to back up" card at the top of the Today screen.
+function renderBackupBanner() {
+  const box = $('#backup-banner');
+  box.hidden = !backupDue();
+  if (box.hidden) return;
+  box.replaceChildren(
+    el('button', { class: 'backup-go', onclick: exportData },
+      el('span', { class: 'bb-icon', text: '🌸' }),
+      el('span', { class: 'bb-text' },
+        el('b', { text: state.backup.last ? `Last backup ${backupAge().toLowerCase()}` : 'No backup yet' }),
+        el('small', { text: 'Tap to back up now' }))),
+    el('button', {
+      class: 'icon bb-close', 'aria-label': 'Remind me tomorrow', title: 'Remind me tomorrow', text: '✕',
+      onclick: () => {
+        state.backup.snoozed = dayKey(addDays(today(), 1));
+        save();
+        renderBackupBanner();
+      },
+    }));
+}
+
+// Backup options in the Habits tab.
+function renderBackupSettings() {
+  const b = state.backup;
+  const set = (patch) => {
+    Object.assign(b, patch);
+    save();
+    renderBackupSettings();
+  };
+  $('#backup-settings').replaceChildren(
+    el('div', { class: 'backup-last' }, 'Last backup: ', el('b', { text: backupAge() })),
+    el('div', { class: 'sub', text: 'Remind me to back up every' }),
+    segmented(BACKUP_EVERY, b.every, (v) => set({ every: v, snoozed: null })),
+    el('div', { class: 'sub', text: 'Backup file' }),
+    segmented([[false, 'Replace the old one'], [true, 'Keep dated copies']], b.dated, (v) => set({ dated: v })));
+}
+
 async function exportData() {
   const json = JSON.stringify({ app: 'habit-tracker', version: 1, exportedAt: new Date().toISOString(), ...state, images });
-  const name = `habits-backup-${dayKey(today())}.json`;
+  // Same name each time lets Files offer "Replace", so old backups don't pile up.
+  const name = state.backup.dated ? `habits-backup-${dayKey(today())}.json` : 'habits-backup.json';
   const file = new File([json], name, { type: 'application/json' });
+  const saved = () => {
+    state.backup.last = new Date().toISOString();
+    state.backup.snoozed = null;
+    save();
+    render();
+  };
 
-  // On iPhone the share sheet lets you "Save to Files".
+  // On iPhone the share sheet lets you "Save to Files" (choose iCloud Drive to keep it safe).
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({ files: [file] });
+      saved();
       return;
     } catch (e) {
-      if (e.name === 'AbortError') return;
+      if (e.name === 'AbortError') return; // you closed the share sheet: no backup made
     }
   }
   const url = URL.createObjectURL(file);
@@ -1263,6 +1337,7 @@ async function exportData() {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+  saved();
 }
 
 async function importData(file) {
@@ -1277,6 +1352,7 @@ async function importData(file) {
       settings: data.settings || state.settings,
       todos: data.todos || data.reminders || state.todos,
       notes: data.notes || state.notes,
+      backup: state.backup, // keep this phone's backup schedule
     });
     openNoteId = null;
     images = data.images ? normalizeImages(data.images) : { bg: images.bg, icons: {} };

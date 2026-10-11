@@ -335,6 +335,36 @@ h2 { font-size: 1.18rem; margin: 0 0 6px; color: var(--heading); }
 .backup { margin-top: 24px; padding: 16px; }
 .backup p { color: var(--muted); font-size: 0.88rem; margin: 0 0 12px; }
 .backup-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.backup-settings { display: grid; gap: 8px; margin-bottom: 14px; }
+.backup-settings .seg button { font-size: 0.8rem; padding: 8px 2px; }
+.backup-last { font-size: 0.94rem; margin-bottom: 4px; }
+
+/* "Time to back up" card on the Today screen */
+.backup-banner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 6px;
+  margin-bottom: 12px;
+  border-left: 4px solid var(--tint);
+}
+.backup-go {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: none;
+  padding: 10px 12px;
+  text-align: left;
+  color: var(--text);
+}
+.bb-icon { font-size: 1.4rem; }
+.bb-text { display: grid; min-width: 0; }
+.bb-text b { color: var(--heading); }
+.bb-text small { font-size: 0.82rem; color: var(--muted); }
+.bb-close { color: var(--muted); font-size: 1rem; }
 
 /* ---------- Style ---------- */
 .section-label {

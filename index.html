@@ -28,6 +28,7 @@
         <button id="date-label" class="date-label" aria-label="Go to today"></button>
         <button id="next-day" class="nav" aria-label="Next day">›</button>
       </div>
+      <div id="backup-banner" class="card backup-banner" hidden></div>
       <div id="progress" class="progress">
         <div class="bar"><span id="progress-fill"></span></div>
         <div id="progress-text" class="ptext"></div>
@@ -69,9 +70,10 @@
 
       <div class="card backup">
         <h2>Backup</h2>
-        <p>Your data is stored only on this phone. Export a backup every so often (save it to Files or iCloud Drive).</p>
+        <p>Your data is stored only on this phone. When you back up, choose <b>Save to Files → iCloud Drive</b> so it's safe even if you lose your phone.</p>
+        <div id="backup-settings" class="backup-settings"></div>
         <div class="backup-actions">
-          <button id="export-btn" class="secondary">Export backup</button>
+          <button id="export-btn" class="secondary">Back up now</button>
           <label class="secondary btn">Import backup<input type="file" id="import-input" accept="application/json,.json" hidden></label>
         </div>
       </div>
