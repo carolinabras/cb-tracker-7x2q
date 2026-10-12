@@ -225,7 +225,7 @@ let editingHabitId = null; // habit whose icon/color editor is open in the Style
 let editingCustomKey = null; // custom theme color whose swatches are open in the Style tab
 let editingTodoId = null; // to-do whose text is being edited
 let calTodoId = null; // to-do whose "add to Google Calendar" panel is open
-let todoView = 'list'; // 'list' or 'calendar' in the To-do tab
+let todoView = 'tasks'; // 'tasks', 'events' or 'calendar' in the To-do tab
 let calMonth = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1); // month shown in the calendar
 let calDay = viewDate; // day selected in the calendar
 let openNoteId = null; // note open in the editor (null = notes list)
@@ -821,7 +821,8 @@ function deleteTodo(t) {
   renderTodos();
 }
 
-function todoItem(t) {
+// withDate: false when the item sits under a day heading, so its line shows only time and repeat.
+function todoItem(t, { withDate = true } = {}) {
   const editing = editingTodoId === t.id;
   let body;
   if (editing) {
@@ -852,7 +853,12 @@ function todoItem(t) {
     }, t.done ? '✓' : ''),
     el('div', { class: 'todo-main' },
       body,
-      t.cal && !editing ? el('div', { class: 'todo-meta', text: `📅 ${calLabel(t.cal)}` }) : null),
+      t.cal && !editing ? el('div', {
+        class: 'todo-meta',
+        text: withDate
+          ? `📅 ${calLabel(t.cal)}`
+          : [calTimeLabel(t.cal), t.cal.repeat !== 'none' ? CAL_REPEATS[t.cal.repeat].toLowerCase() : ''].filter(Boolean).join(' · '),
+      }) : null),
     editing ? null : el('button', {
       class: `icon${calOpen ? ' active' : ''}`, 'aria-label': `Add to Google Calendar: ${t.text}`, 'aria-expanded': String(calOpen),
       html: ICONS.calendar, onclick: () => { calTodoId = calOpen ? null : t.id; renderTodos(); },
@@ -941,6 +947,7 @@ function calendarPanel(t) {
   });
   update();
 
+  const close = () => { calTodoId = null; save(); renderTodos(); };
   return el('div', { class: 'cal-panel' },
     el('div', { class: 'cal-fields' },
       el('label', {}, 'Date', date),
@@ -948,9 +955,34 @@ function calendarPanel(t) {
       el('label', {}, 'Duration', dur),
       el('label', {}, 'Repeat', repeat)),
     hint,
+    el('p', { class: 'hint', text: '“Save” keeps the date in this app only. “Open in Google Calendar” also adds it there.' }),
     el('div', { class: 'button-row' },
       link,
+      el('button', { class: 'secondary', text: 'Save', onclick: () => { t.cal = read(); close(); } }),
+      t.cal ? el('button', { class: 'secondary danger-text', text: 'Remove date', onclick: () => { delete t.cal; close(); } }) : null,
       el('button', { class: 'secondary', text: 'Cancel', onclick: () => { calTodoId = null; renderTodos(); } })));
+}
+
+// Next day an event happens, from `from` on (repeats follow Google Calendar's rules).
+// A one-off event in the past returns its own (past) date.
+function nextOccurrence(cal, from) {
+  const start = parseKey(cal.date);
+  if (cal.repeat === 'none' || start >= from) return start;
+  if (cal.repeat === 'DAILY') return from;
+  if (cal.repeat === 'WEEKLY') return addDays(from, (7 - (daysBetween(start, from) % 7)) % 7);
+  for (let i = 0; i < 24; i++) { // MONTHLY: skips months that don't have that day
+    const d = new Date(from.getFullYear(), from.getMonth() + i, start.getDate());
+    if (d.getDate() === start.getDate() && d >= from) return d;
+  }
+  return start;
+}
+
+function dayHeading(d) {
+  const diff = daysBetween(today(), d);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Tomorrow';
+  if (diff === -1) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
 // ---------- Calendar view of dated to-dos ----------
@@ -1072,45 +1104,108 @@ function renderTodoCalendar() {
     el('p', { class: 'hint cal-note', text: 'Shows your to-dos that have a date. Tap the calendar button on an item to add it to Google Calendar.' }));
 }
 
+// "Completed (n) · Clear" plus the ticked-off items.
+function completedSection(items, what) {
+  if (!items.length) return [];
+  const sorted = [...items].sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
+  return [
+    el('div', { class: 'section-head' },
+      el('div', { class: 'section-label', text: `Completed (${items.length})` }),
+      el('button', { class: 'link', text: 'Clear', onclick: () => {
+        if (!confirm(`Delete all completed ${what}?`)) return;
+        state.todos = state.todos.filter((t) => !items.includes(t));
+        save();
+        renderTodos();
+      } })),
+    el('ul', { class: 'list' }, ...sorted.map((t) => todoItem(t))),
+  ];
+}
+
+// Tasks: to-dos without a date.
+function tasksList() {
+  const tasks = state.todos.filter((t) => !t.cal);
+  const open = tasks.filter((t) => !t.done);
+  const done = tasks.filter((t) => t.done);
+  return [
+    open.length
+      ? [el('div', { class: 'section-label', text: `To do (${open.length})` }), el('ul', { class: 'list' }, ...open.map((t) => todoItem(t)))]
+      : el('p', { class: 'empty', text: done.length ? 'All done! 🎉' : 'No tasks yet. Add one above.' }),
+    ...completedSection(done, 'tasks'),
+  ].flat();
+}
+
+function eventForm() {
+  const text = el('input', { class: 'field', placeholder: 'New event, e.g. Dentist', maxlength: '200', autocomplete: 'off', enterkeyhint: 'done', 'aria-label': 'New event' });
+  const date = el('input', { class: 'field', type: 'date', value: dayKey(today()), 'aria-label': 'Date' });
+  const time = el('input', { class: 'field', type: 'time', 'aria-label': 'Time (optional)' });
+  const repeat = el('select', { class: 'field', 'aria-label': 'Repeat' },
+    ...Object.entries(CAL_REPEATS).map(([v, label]) => el('option', { value: v }, label)));
+  const form = el('form', { class: 'card event-form' },
+    el('div', { class: 'add-form' }, text, el('button', { type: 'submit', class: 'primary', text: 'Add' })),
+    el('div', { class: 'cal-fields' },
+      el('label', {}, 'Date', date),
+      el('label', {}, 'Time (optional)', time),
+      el('label', { class: 'full' }, 'Repeat', repeat)));
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const value = text.value.trim();
+    if (!value) return text.focus();
+    state.todos.push({
+      id: newId(), text: value, done: false, doneAt: null,
+      cal: validCal({ date: date.value || dayKey(today()), time: time.value || null, dur: 60, repeat: repeat.value }),
+    });
+    save();
+    renderTodos();
+  });
+  return form;
+}
+
+// Events: to-dos with a date, by the next day they happen.
+function eventsList() {
+  const t0 = today();
+  const events = state.todos.filter((t) => t.cal);
+  const byWhen = (a, b) => a.next - b.next || (a.t.cal.time || '').localeCompare(b.t.cal.time || '');
+  const open = events.filter((t) => !t.done).map((t) => ({ t, next: nextOccurrence(t.cal, t0) }));
+  const overdue = open.filter((x) => x.next < t0).sort(byWhen);
+  const upcoming = open.filter((x) => x.next >= t0).sort(byWhen);
+
+  const out = [eventForm()];
+  if (overdue.length) {
+    out.push(el('div', { class: 'section-label overdue-label', text: 'Overdue' }),
+      el('ul', { class: 'list' }, ...overdue.map((x) => todoItem(x.t, { withDate: true }))));
+  }
+  const groups = new Map();
+  for (const x of upcoming) {
+    const key = dayKey(x.next);
+    if (!groups.has(key)) groups.set(key, { day: x.next, items: [] });
+    groups.get(key).items.push(x.t);
+  }
+  for (const { day, items } of groups.values()) {
+    out.push(el('div', { class: 'section-label', text: dayHeading(day) }),
+      el('ul', { class: 'list' }, ...items.map((t) => todoItem(t, { withDate: false }))));
+  }
+  if (!open.length) out.push(el('p', { class: 'empty', text: 'No upcoming events. Add one above.' }));
+  out.push(...completedSection(events.filter((t) => t.done), 'events'));
+  return out;
+}
+
 function renderTodos() {
-  // List / Calendar switch at the top of the To-do tab.
-  $('#todo-switch').replaceChildren(segmented([['list', 'List'], ['calendar', 'Calendar']], todoView, (v) => {
+  // Tasks / Events / Calendar switch at the top of the To-do tab.
+  $('#todo-switch').replaceChildren(segmented([['tasks', 'Tasks'], ['events', 'Events'], ['calendar', 'Calendar']], todoView, (v) => {
     todoView = v;
     calTodoId = null;
     editingTodoId = null;
     renderTodos();
   }));
-  const calendar = todoView === 'calendar';
-  $('#todo-cal').hidden = !calendar;
-  $('#todo-form').hidden = calendar;
-  $('#todos').hidden = calendar;
-  if (calendar) {
+  $('#todo-cal').hidden = todoView !== 'calendar';
+  $('#todo-form').hidden = todoView !== 'tasks';
+  $('#todos').hidden = todoView === 'calendar';
+  if (todoView === 'calendar') {
     renderTodoCalendar();
     return;
   }
 
-  const open = state.todos.filter((t) => !t.done);
-  const done = state.todos.filter((t) => t.done).sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
-
-  const out = [];
-  if (open.length) {
-    out.push(el('div', { class: 'section-label', text: `To do (${open.length})` }), el('ul', { class: 'list' }, ...open.map(todoItem)));
-  } else {
-    out.push(el('p', { class: 'empty', text: done.length ? 'All done! 🎉' : 'Nothing to do yet. Add something above.' }));
-  }
-  if (done.length) {
-    out.push(
-      el('div', { class: 'section-head' },
-        el('div', { class: 'section-label', text: `Completed (${done.length})` }),
-        el('button', { class: 'link', text: 'Clear', onclick: () => {
-          if (!confirm('Delete all completed to-dos?')) return;
-          state.todos = state.todos.filter((t) => !t.done);
-          save();
-          renderTodos();
-        } })),
-      el('ul', { class: 'list' }, ...done.map(todoItem)));
-  }
-  $('#todos').replaceChildren(...out);
+  $('#todos').replaceChildren(...(todoView === 'events' ? eventsList() : tasksList()));
 
   // Focus right away (still inside the tap) so the iPhone keyboard opens.
   const input = $('#todos .todo-input');
