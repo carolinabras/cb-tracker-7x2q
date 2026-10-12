@@ -19,6 +19,7 @@
   <div id="backdrop" aria-hidden="true"></div>
   <header class="top">
     <h1 id="title">Check-in</h1>
+    <button id="points-pill" class="points-pill" aria-label="Points and rewards">🌸 <span id="points-value">0</span></button>
   </header>
 
   <main>
@@ -79,10 +80,16 @@
       </div>
     </section>
 
+    <section id="view-rewards" class="view" hidden>
+      <div id="rewards"></div>
+    </section>
+
     <section id="view-style" class="view" hidden>
       <div id="style"></div>
     </section>
   </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <nav class="tabs">
     <button data-tab="today" class="active">

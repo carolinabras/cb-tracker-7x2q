@@ -62,6 +62,12 @@ const CAL_REPEATS = { none: "Doesn't repeat", DAILY: 'Every day', WEEKLY: 'Every
 // How often to remind you to back up, in days (0 = never).
 const BACKUP_EVERY = [[0, 'Off'], [3, '3 days'], [7, 'Week'], [14, '2 weeks'], [30, 'Month']];
 
+// Points you earn. Habit points are worked out from your history, so un-ticking takes them back.
+const POINTS = { habit: 10, perfectDay: 20, streak7: 50, streak30: 200, task: 5 };
+const LEVELS = ['🌱 Seedling', '🌿 Sprout', '🌷 Bud', '🌸 Blossom', '💮 Full Bloom', '🌳 Sakura Tree', '🏯 Sakura Garden'];
+const LEVEL_SIZE = 500; // points per level
+const REWARD_IDEAS = [['☕ Fancy coffee', 100], ['🍰 Dessert', 150], ['🎬 Movie night', 300], ['🛍️ Treat yourself', 500]];
+
 // ---------- Storage ----------
 // Shape: { habits: [{ id, name, createdAt, emoji?, color? }],
 //          log: { 'YYYY-MM-DD': { [habitId]: 'done' | 'missed' } },
@@ -141,7 +147,18 @@ function normalize(data) {
     dated: !!b.dated, // false: same file name each time, so Files offers to replace the old one
     snoozed: /^\d{4}-\d{2}-\d{2}$/.test(b.snoozed) ? b.snoozed : null, // banner hidden until this day
   };
-  return { habits, log: data.log, settings: s, todos, notes, backup };
+  const rw = data.rewards && typeof data.rewards === 'object' ? data.rewards : null;
+  const rewards = {
+    // Points from ticked-off tasks/events are kept here, so clearing completed items doesn't lose them.
+    taskPoints: rw && Number.isFinite(rw.taskPoints) ? Math.max(0, rw.taskPoints) : todos.filter((t) => t.done).length * POINTS.task,
+    items: (rw && Array.isArray(rw.items) ? rw.items : [])
+      .filter((x) => x && typeof x.id === 'string' && typeof x.name === 'string' && Number.isFinite(x.cost))
+      .map((x) => ({ id: x.id, name: x.name.slice(0, 60), cost: Math.max(1, Math.round(x.cost)) })),
+    redeemed: (rw && Array.isArray(rw.redeemed) ? rw.redeemed : [])
+      .filter((x) => x && typeof x.id === 'string' && typeof x.name === 'string' && Number.isFinite(x.cost) && typeof x.at === 'string')
+      .map((x) => ({ id: x.id, name: x.name.slice(0, 60), cost: Math.round(x.cost), at: x.at })),
+  };
+  return { habits, log: data.log, settings: s, todos, notes, backup, rewards };
 }
 
 const DATA_URL = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
@@ -456,7 +473,7 @@ function renderToday() {
   $('#today-list').replaceChildren(...habits.map((h) => {
     const streak = currentStreak(h.id);
     return habitCard(h, getStatus(h.id, viewDate), streak ? `🔥 ${streak} day streak` : 'No streak yet',
-      (value) => { toggleStatus(h.id, viewDate, value); renderToday(); });
+      (value) => withPoints(() => { toggleStatus(h.id, viewDate, value); renderToday(); }));
   }));
 }
 
@@ -809,8 +826,7 @@ function addTodo(text) {
 }
 
 function toggleTodo(t) {
-  t.done = !t.done;
-  t.doneAt = t.done ? new Date().toISOString() : null;
+  withPoints(() => setTodoDone(t, !t.done));
   save();
   renderTodos();
 }
@@ -1062,8 +1078,7 @@ function dayItem(t) {
       class: `check-circle${t.done ? ' on' : ''}`, 'aria-label': `${t.done ? 'Mark not done' : 'Mark done'}: ${t.text}`,
       'aria-pressed': String(t.done),
       onclick: () => {
-        t.done = !t.done;
-        t.doneAt = t.done ? new Date().toISOString() : null;
+        withPoints(() => setTodoDone(t, !t.done));
         save();
         renderTodoCalendar();
       },
@@ -1349,6 +1364,173 @@ function renderNotes() {
   if (n && !n.title && !n.body) $('#notes .note-title').focus();
 }
 
+// ---------- Points & rewards ----------
+function habitPoints() {
+  let pts = 0;
+  for (const [k, day] of Object.entries(state.log)) {
+    // Habits that existed that day (so adding a new habit doesn't undo old perfect days).
+    const active = state.habits.filter((h) => !h.createdAt || h.createdAt <= k);
+    const done = active.filter((h) => day[h.id] === 'done').length;
+    pts += done * POINTS.habit;
+    if (active.length && done === active.length) pts += POINTS.perfectDay;
+  }
+  for (const h of state.habits) {
+    const days = Object.keys(state.log).filter((k) => state.log[k][h.id] === 'done').sort();
+    let run = 0, prev = null;
+    for (const k of days) {
+      const d = parseKey(k);
+      run = prev && sameDay(addDays(prev, 1), d) ? run + 1 : 1;
+      if (run === 7) pts += POINTS.streak7;
+      if (run === 30) pts += POINTS.streak30;
+      prev = d;
+    }
+  }
+  return pts;
+}
+
+const earnedPoints = () => habitPoints() + state.rewards.taskPoints;
+const spentPoints = () => state.rewards.redeemed.reduce((sum, x) => sum + x.cost, 0);
+const pointsBalance = () => earnedPoints() - spentPoints();
+const formatPoints = (n) => n.toLocaleString();
+
+function setTodoDone(t, done) {
+  if (t.done === done) return;
+  t.done = done;
+  t.doneAt = done ? new Date().toISOString() : null;
+  state.rewards.taskPoints = Math.max(0, state.rewards.taskPoints + (done ? POINTS.task : -POINTS.task));
+}
+
+// Runs an action and pops up "+10 🌸" if it earned points.
+function withPoints(action) {
+  const before = earnedPoints();
+  action();
+  const gained = earnedPoints() - before;
+  if (gained > 0) toast(`+${gained} 🌸`);
+  updatePointsPill();
+}
+
+let toastTimer = null;
+function toast(text) {
+  const box = $('#toast');
+  box.textContent = text;
+  box.classList.remove('show');
+  void box.offsetWidth; // restart the animation
+  box.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => box.classList.remove('show'), 1600);
+}
+
+function updatePointsPill() {
+  $('#points-value').textContent = formatPoints(pointsBalance());
+  $('#points-pill').classList.toggle('active', currentTab === 'rewards');
+}
+
+function levelInfo() {
+  const earned = earnedPoints();
+  const index = Math.floor(earned / LEVEL_SIZE);
+  return {
+    number: index + 1,
+    name: LEVELS[Math.min(index, LEVELS.length - 1)],
+    progress: (earned % LEVEL_SIZE) / LEVEL_SIZE,
+    toNext: LEVEL_SIZE - (earned % LEVEL_SIZE),
+  };
+}
+
+function addReward(name, cost) {
+  state.rewards.items.push({ id: newId(), name: name.slice(0, 60), cost: Math.max(1, Math.round(cost)) });
+  save();
+  renderRewards();
+}
+
+function redeemReward(item) {
+  if (pointsBalance() < item.cost) return;
+  if (!confirm(`Redeem "${item.name}" for ${formatPoints(item.cost)} points?`)) return;
+  state.rewards.redeemed.unshift({ id: newId(), name: item.name, cost: item.cost, at: new Date().toISOString() });
+  save();
+  toast('Enjoy! 🎉');
+  render();
+}
+
+function renderRewards() {
+  const r = state.rewards;
+  const balance = pointsBalance();
+  const level = levelInfo();
+
+  const name = el('input', { class: 'field', placeholder: 'New reward', maxlength: '60', autocomplete: 'off', 'aria-label': 'Reward name' });
+  const cost = el('input', { class: 'field reward-cost', type: 'number', inputmode: 'numeric', min: '1', step: '1', placeholder: 'Points', 'aria-label': 'Cost in points' });
+  const form = el('form', { class: 'add-form reward-form' }, name, cost, el('button', { type: 'submit', class: 'primary', text: 'Add' }));
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const n = name.value.trim();
+    const c = Number(cost.value);
+    if (!n) return name.focus();
+    if (!(c >= 1)) return cost.focus();
+    addReward(n, c);
+  });
+
+  const ideas = REWARD_IDEAS.filter(([n]) => !r.items.some((x) => x.name === n));
+  const rewardRow = (item) => {
+    const missing = item.cost - balance;
+    return el('li', { class: 'card reward' },
+      el('div', { class: 'info' },
+        el('div', { class: 'name', text: item.name }),
+        el('div', { class: 'meta', text: missing > 0 ? `${formatPoints(item.cost)} pts · ${formatPoints(missing)} to go` : `${formatPoints(item.cost)} pts` })),
+      el('button', { class: 'primary redeem', disabled: missing > 0, text: 'Redeem', onclick: () => redeemReward(item) }),
+      el('button', {
+        class: 'icon danger', 'aria-label': `Delete reward: ${item.name}`, html: ICONS.trash,
+        onclick: () => {
+          if (!confirm(`Delete the reward "${item.name}"?`)) return;
+          r.items = r.items.filter((x) => x !== item);
+          save();
+          renderRewards();
+        },
+      }));
+  };
+
+  const earnRow = (label, pts) => el('li', {}, el('span', { text: label }), el('b', { text: `+${pts}` }));
+
+  $('#rewards').replaceChildren(
+    el('div', { class: 'card points-card' },
+      el('div', { class: 'points-big' }, el('span', { text: '🌸' }), el('b', { text: formatPoints(balance) }), el('small', { text: 'points' })),
+      el('div', { class: 'level-line' },
+        el('span', { text: `Level ${level.number} · ${level.name}` }),
+        el('small', { text: `${formatPoints(level.toNext)} to level ${level.number + 1}` })),
+      el('div', { class: 'bar' }, el('span', { style: `width:${Math.round(level.progress * 100)}%` })),
+      el('div', { class: 'points-sub', text: `${formatPoints(earnedPoints())} earned in total · ${formatPoints(spentPoints())} spent` })),
+
+    el('div', { class: 'section-label', text: 'Rewards' }),
+    r.items.length
+      ? el('ul', { class: 'list' }, ...r.items.slice().sort((a, b) => a.cost - b.cost).map(rewardRow))
+      : el('p', { class: 'empty reward-empty', text: 'Add rewards to treat yourself with your points.' }),
+    form,
+    ideas.length ? el('div', { class: 'reward-ideas' },
+      el('span', { class: 'sub', text: 'Ideas:' }),
+      ...ideas.map(([n, c]) => el('button', { class: 'idea', text: `${n} · ${c}`, onclick: () => addReward(n, c) }))) : null,
+
+    el('div', { class: 'section-label', text: 'How to earn points' }),
+    el('ul', { class: 'card earn-list' },
+      earnRow('Habit marked done', POINTS.habit),
+      earnRow('Perfect day (every habit done)', POINTS.perfectDay),
+      earnRow('A habit reaches a 7-day streak', POINTS.streak7),
+      earnRow('A habit reaches a 30-day streak', POINTS.streak30),
+      earnRow('Task or event ticked off', POINTS.task)),
+
+    r.redeemed.length ? el('div', { class: 'section-label', text: 'Redeemed' }) : null,
+    r.redeemed.length ? el('ul', { class: 'list' }, ...r.redeemed.slice(0, 30).map((x) => el('li', { class: 'card reward' },
+      el('div', { class: 'info' },
+        el('div', { class: 'name', text: x.name }),
+        el('div', { class: 'meta', text: `−${formatPoints(x.cost)} pts · ${new Date(x.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}` })),
+      el('button', {
+        class: 'link', text: 'Undo', 'aria-label': `Undo: ${x.name}`,
+        onclick: () => {
+          if (!confirm(`Undo "${x.name}" and get ${formatPoints(x.cost)} points back?`)) return;
+          r.redeemed = r.redeemed.filter((y) => y !== x);
+          save();
+          render();
+        },
+      })))) : null);
+}
+
 // ---------- Backup ----------
 function backupAge() {
   const last = state.backup.last;
@@ -1448,6 +1630,7 @@ async function importData(file) {
       todos: data.todos || data.reminders || state.todos,
       notes: data.notes || state.notes,
       backup: state.backup, // keep this phone's backup schedule
+      rewards: data.rewards || state.rewards,
     });
     openNoteId = null;
     images = data.images ? normalizeImages(data.images) : { bg: images.bg, icons: {} };
@@ -1462,7 +1645,7 @@ async function importData(file) {
 }
 
 // ---------- Tabs & wiring ----------
-const TITLES = { today: 'Check-in', history: 'History', todos: 'To-do', notes: 'Notes', habits: 'My habits', style: 'Style' };
+const TITLES = { today: 'Check-in', history: 'History', todos: 'To-do', notes: 'Notes', habits: 'My habits', style: 'Style', rewards: 'Rewards' };
 
 function render() {
   if (currentTab === 'today') renderToday();
@@ -1470,7 +1653,9 @@ function render() {
   else if (currentTab === 'todos') renderTodos();
   else if (currentTab === 'notes') renderNotes();
   else if (currentTab === 'habits') renderHabits();
+  else if (currentTab === 'rewards') renderRewards();
   else renderStyle();
+  updatePointsPill();
 }
 
 function showTab(tab) {
@@ -1492,6 +1677,7 @@ $('#next-day').addEventListener('click', () => {
   renderToday();
 });
 $('#date-label').addEventListener('click', () => { viewDate = today(); renderToday(); });
+$('#points-pill').addEventListener('click', () => showTab('rewards'));
 
 $('#todo-form').addEventListener('submit', (e) => {
   e.preventDefault();

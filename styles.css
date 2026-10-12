@@ -722,6 +722,79 @@ a.icon { text-decoration: none; }
 .note-title::placeholder, .note-body::placeholder { color: var(--muted); }
 .note-stamp { text-align: center; font-size: 0.76rem; color: var(--on-bg-muted); margin-top: 8px; }
 
+/* ---------- Points & rewards ---------- */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.points-pill {
+  flex: none;
+  border: 0;
+  border-radius: calc(18px * var(--round));
+  background: var(--card);
+  color: var(--heading);
+  font-weight: 700;
+  font-size: 0.94rem;
+  padding: 7px 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  font-variant-numeric: tabular-nums;
+}
+.points-pill.active { background: var(--tint); color: var(--tint-text); }
+
+.points-card { padding: 18px 16px 14px; display: grid; gap: 8px; margin: 4px 0 6px; }
+.points-big { display: flex; align-items: baseline; gap: 8px; }
+.points-big span { font-size: 1.8rem; align-self: center; }
+.points-big b { font-size: 2.4rem; line-height: 1; color: var(--heading); font-variant-numeric: tabular-nums; }
+.points-big small { color: var(--muted); font-size: 0.94rem; }
+.level-line { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-weight: 600; }
+.level-line small { font-weight: 400; color: var(--muted); font-size: 0.76rem; text-align: right; }
+.points-sub { font-size: 0.76rem; color: var(--muted); }
+
+.reward { display: flex; align-items: center; gap: 10px; padding: 10px 8px 10px 14px; }
+.reward .info { flex: 1; min-width: 0; }
+.redeem { padding: 8px 14px; font-size: 0.88rem; }
+.reward-empty { padding: 14px 16px; }
+.reward-form { margin: 12px 0 8px; }
+.reward-cost { flex: none; width: 6rem; }
+.reward-ideas { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.reward-ideas .sub { color: var(--on-bg-muted); margin-right: 2px; }
+.idea {
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  border-radius: calc(16px * var(--round));
+  padding: 6px 10px;
+  font-size: 0.82rem;
+}
+
+.earn-list { list-style: none; margin: 0; padding: 4px 16px; }
+.earn-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.94rem;
+}
+.earn-list li:last-child { border-bottom: 0; }
+.earn-list b { color: var(--accent); white-space: nowrap; }
+
+/* "+10 🌸" pop-up */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  transform: translate(-50%, 12px);
+  background: var(--text);
+  color: var(--card);
+  font-weight: 700;
+  padding: 9px 18px;
+  border-radius: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 10;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
 /* ---------- Tab bar ---------- */
 .tabs {
   position: fixed;
