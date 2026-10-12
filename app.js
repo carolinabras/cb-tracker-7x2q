@@ -1489,7 +1489,8 @@ function renderRewards() {
 
   const earnRow = (label, pts) => el('li', {}, el('span', { text: label }), el('b', { text: `+${pts}` }));
 
-  $('#rewards').replaceChildren(
+  // Optional parts are null when empty; leave them out (null would show up as the text "null").
+  $('#rewards').replaceChildren(...[
     el('div', { class: 'card points-card' },
       el('div', { class: 'points-big' }, el('span', { text: '🌸' }), el('b', { text: formatPoints(balance) }), el('small', { text: 'points' })),
       el('div', { class: 'level-line' },
@@ -1528,7 +1529,8 @@ function renderRewards() {
           save();
           render();
         },
-      })))) : null);
+      })))) : null,
+  ].filter(Boolean));
 }
 
 // ---------- Backup ----------
